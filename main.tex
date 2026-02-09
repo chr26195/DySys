@@ -1,0 +1,85 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+\usepackage{natbib}
+\usepackage{amsmath,amsfonts}
+
+\title{Dynamical Systems and Transformers}
+\author{}
+\date{January 2026}
+
+\begin{document}
+
+\maketitle
+
+\section*{Research Note: Transformers vs. SSMs on Linear Dynamical Systems}
+
+\subsection*{1. Problem Setup}
+Consider a partially observed linear dynamical system:
+\begin{align*}
+    x_{t+1} &= A x_t + w_t, \quad w_t \sim \mathcal{N}(0, \Sigma_w) \\
+    y_t &= C x_t + v_t, \quad v_t \sim \mathcal{N}(0, \Sigma_v)
+\end{align*}
+We are interested in the sequence prediction problem: computing (or sampling from) $P(y_{t+1} \mid y_1, \dots, y_t)$. The optimal estimator for this setting is given by the Kalman Filter.
+
+\subsection*{2. Background: Infinite Horizon Kalman Filtering}
+For a detailed overview, see chapter 10 of \cite{hazan2025introductiononlinecontrol}. In the \textit{infinite horizon} limit, the filter converges to a steady-state predictor. This time-invariant form is particularly relevant for analyzing the representational capacity of fixed-weight neural networks.
+
+In the steady-state regime, the Kalman gain converges to a fixed matrix $L$. The filter recursively maintains an estimate $\hat{x}_t$ of the latent state and updates it using the discrepancy between the actual observation $y_t$ and the predicted observation (the ``innovation''). The update rule is given by the linear recurrence:
+\begin{equation}
+    \hat{x}_{t+1} = (A - LC)\hat{x}_t + L y_t
+    \label{eq:kf_recurrence}
+\end{equation}
+where $\tilde{A} = (A - LC)$ represents the closed-loop dynamics.
+
+\paragraph{Optimality.}
+This steady-state filter satisfies strong optimality conditions:
+\begin{itemize}
+    \item \textbf{Least-Squares Optimality:} Even without Gaussian assumptions, this filter produces the optimal linear predictor in a least-squares sense, minimizing $\mathbb{E}[\|x_t - \hat{x}_t\|^2]$ among all linear estimators.
+    \item \textbf{Bayes-Optimality:} If the noise terms are i.i.d. Gaussian, this predictor is exactly the conditional expectation $\mathbb{E}[x_{t+1} \mid y_{1:t}]$.
+\end{itemize}
+
+\paragraph{Existence.}
+A fixed, stabilizing solution for $L$ is guaranteed to exist if the underlying system is \textit{observable}. Specifically, observability ensures that the spectral radius $\rho(A - LC) < 1$, meaning the filter is stable and estimation errors decay over time.
+
+\subsection*{3. Representational Capacity of Transformers}
+\textbf{Question:} Can a Transformer exactly implement the steady-state Kalman Filter recursion (Eq. \ref{eq:kf_recurrence}) for any parameters $A, C$?
+
+
+
+\paragraph{Prior Work.}
+\cite{pmlr-v242-goel24a} demonstrates that a single-layer masked attention model with quadratic positional features can \textit{approximate} the Kalman Filter and LQG control. However, their transformer is allowed to maintain an inner state estimate which is a strong assumption.
+
+\paragraph{Our Construction: Exact Computation via Spectral Decomposition.}
+We propose that the recursion admits a simple decomposition that allows for \textit{exact} computation by a Transformer. Unrolling the recurrence $\hat{x}_{t+1} = \tilde{A}\hat{x}_t + L y_t$, we obtain the convolution:
+\[
+\hat{x}_{t+1} = \sum_{k=1}^t \tilde{A}^{t-k} L y_k
+\]
+Assuming $\tilde{A}$ is diagonalizable (or by handling Jordan blocks via derivative embeddings), the term $\tilde{A}^{t-k}$ can be factored using the commutativity of scalar spectral components:
+\[
+\lambda^{t-k} = \lambda^t \cdot \lambda^{-k}
+\]
+This factorization perfectly matches the Query-Key structure of self-attention. A Transformer can implement this exactly with:
+\begin{itemize}
+    \item \textbf{Depth:} $O(\log T)$ (to compute global positional terms $\lambda^t$ and $\lambda^{-k}$ via MLP).
+    \item \textbf{Width:} $O(d_x)$ (constant w.r.t. $T$).
+    \item \textbf{Heads:} $O(1)$ linear attention heads (to perform the summation $\sum \lambda^{-k} L y_k$).
+\end{itemize}
+\textbf{Note on Singularity:} If $\tilde{A}$ is singular (e.g., in deadbeat observers where eigenvalues are 0), the inverse $\lambda^{-k}$ is undefined. In this case, the Transformer relies on spectral masking (zeroing out the $\lambda=0$ components) rather than inversion, which remains implementable within the architecture.
+
+\subsection*{4. Separation: Dynamics Easier for Transformers than SSMs}
+To establish a separation between Transformers and State-Space Models (SSMs), we consider tasks requiring ``long-range copying,'' which are hard for fixed-state SSMs but trivial for Transformers (via induction heads).
+
+\textbf{Proposed Construction:} Consider a process generating blocks of $2k$ bits. For each block:
+\begin{enumerate}
+    \item The first $k$ bits are sampled uniformly at random.
+    \item The last $k$ bits are a direct copy of the first $k$ bits from a specific \textit{previous} block (chosen uniformly at random).
+\end{enumerate}
+
+\textbf{Hypothesis:}
+\begin{itemize}
+    \item \textbf{Transformers:} Can solve this efficiently using attention to ``lookup'' the previous block \cite{jelassi2024repeatmetransformersbetter}.
+    \item \textbf{SSMs:} Requires the hidden state to ``memorize'' all previous blocks to output the correct copy, implying a state size scaling linearly with history length (or exponential performance degradation for fixed state).
+\end{itemize}
+\bibliographystyle{abbrvnat}
+\bibliography{references}
+\end{document}
